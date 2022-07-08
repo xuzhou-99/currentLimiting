@@ -7,7 +7,11 @@
 
 #### 主要的限流算法
 
-参考文档：[4种经典限流算法讲解](https://zhuanlan.zhihu.com/p/376564740)
+参考文档：
+
+[4种经典限流算法讲解 https://zhuanlan.zhihu.com/p/376564740](https://zhuanlan.zhihu.com/p/376564740)
+
+[架构之高并发：限流 https://www.pdai.tech/md/arch/arch-y-ratelimit.html](https://www.pdai.tech/md/arch/arch-y-ratelimit.html)
 
 * 固定窗口限流算法
 * 滑动窗口限流算法
