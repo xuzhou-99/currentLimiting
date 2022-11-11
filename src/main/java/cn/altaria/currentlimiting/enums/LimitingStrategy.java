@@ -41,11 +41,11 @@ public enum LimitingStrategy {
     /**
      * 限流策略：每月
      */
-    month_strategy("3", "月", 30 * 24 * 60 * 60L, "month"),
+    month_strategy("6", "月", 30 * 24 * 60 * 60L, "month"),
     /**
      * 限流策略：每年
      */
-    year_strategy("3", "年", 365 * 24 * 60 * 60L, "year"),
+    year_strategy("7", "年", 365 * 24 * 60 * 60L, "year"),
 
     ;
 
