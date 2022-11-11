@@ -1,0 +1,16 @@
+{
+  "properties": [
+    {
+      "name": "security.limit.enable",
+      "type": "java.lang.Boolean",
+      "description": "是否开启限流 默认不开启.",
+      "sourceType": "cn.altaria.currentlimiting.config.CurrentLimitingConfig"
+    },
+    {
+      "name": "security.limit.count-strategy",
+      "type": "java.lang.String",
+      "description": "限流策略：cache / redis。 默认值： cache，本地缓存限流.",
+      "sourceType": "cn.altaria.currentlimiting.config.CurrentLimitingConfig"
+    }
+  ]
+}
