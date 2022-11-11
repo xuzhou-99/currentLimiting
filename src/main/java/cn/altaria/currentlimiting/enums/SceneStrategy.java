@@ -28,6 +28,11 @@ public enum SceneStrategy {
      * 对IP进行限流
      */
     ip("ip", "对IP进行限流"),
+
+    /**
+     * 应用用户限流
+     */
+    app("app", "应用限流"),
     ;
 
     /**

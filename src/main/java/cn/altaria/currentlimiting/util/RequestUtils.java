@@ -2,6 +2,7 @@ package cn.altaria.currentlimiting.util;
 
 import java.net.InetAddress;
 
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 
 /**
@@ -36,6 +37,42 @@ public class RequestUtils {
             "REMOTE_ADDR"
     };
 
+    private RequestUtils() {
+
+    }
+
+    /**
+     * 通过请求获取对应的Ip
+     *
+     * @param request 请求
+     * @return Ip
+     */
+    public static String getValueFromRequest(HttpServletRequest request, String key) {
+
+        if (key == null || "".equals(key)) {
+            return null;
+        }
+
+        String value = request.getHeader(key);
+        if (value != null && !"".equals(value)) {
+            return value;
+        }
+
+        Cookie[] cookies = request.getCookies();
+        for (Cookie cookie : cookies) {
+            String name = cookie.getName();
+            if (key.equals(name)) {
+                return cookie.getValue();
+            }
+        }
+
+        String parameter = request.getParameter(key);
+        if (parameter != null && !"".equals(parameter)) {
+            return parameter;
+        }
+
+        return null;
+    }
 
     /**
      * 通过请求获取对应的Ip

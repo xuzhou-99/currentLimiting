@@ -2,13 +2,13 @@ package cn.altaria.currentlimiting.handler;
 
 import org.springframework.stereotype.Component;
 
-
 import cn.altaria.currentlimiting.annotation.CurrentLimiting;
 import cn.altaria.currentlimiting.config.CurrentLimitingConfig;
 import cn.altaria.currentlimiting.count.ICountStrategy;
 import cn.altaria.currentlimiting.enums.CountStrategy;
 import cn.altaria.currentlimiting.enums.LimitingStrategy;
 import cn.altaria.currentlimiting.enums.SceneStrategy;
+import cn.altaria.currentlimiting.pojo.CuLimitInfo;
 import cn.altaria.currentlimiting.pojo.CurrentLimitingRecord;
 import cn.altaria.currentlimiting.spring.SpringContextUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -23,7 +23,9 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class CurrentLimitingProcessor {
 
-    private static final String CURRENT_LIMIT_HEADER = "limit:";
+    private static final String LIMIT_HEADER_CURRENT = "limit:";
+
+    private static final String LIMIT_HEADER_TIMES = "times:";
 
     private ICountStrategy countStrategy;
 
@@ -43,6 +45,19 @@ public class CurrentLimitingProcessor {
             countStrategy = (ICountStrategy) SpringContextUtils.getBean(beanName);
         }
         log.info("【限流组件】限流组件开始工作...");
+    }
+
+    /**
+     * 过滤器处理请求
+     *
+     * @param currentLimiting 限流注解参数
+     * @param cuLimitInfo     请求信息
+     * @return 是否限流
+     */
+    public boolean filterRequest(final CurrentLimiting currentLimiting, final CuLimitInfo cuLimitInfo) {
+        String fullKey = spliceFullKey(currentLimiting, cuLimitInfo);
+        long expireTime = currentLimiting.strategy().getExTime() * currentLimiting.strategyTime();
+        return filterRequest(expireTime, currentLimiting.limit(), fullKey);
     }
 
     /**
@@ -88,6 +103,18 @@ public class CurrentLimitingProcessor {
         return countStrategy.filter(expireTime, limit, fullKey);
     }
 
+
+    /**
+     * 拼接限流key
+     *
+     * @param currentLimiting 限流注解参数
+     * @param cuLimitInfo     请求信息
+     * @return 限流key
+     */
+    public static String spliceFullKey(CurrentLimiting currentLimiting, final CuLimitInfo cuLimitInfo) {
+        return spliceFullKey(currentLimiting.strategy(), currentLimiting.scene(),
+                currentLimiting.strategyTime(), currentLimiting.limit(), cuLimitInfo);
+    }
 
     /**
      * 拼接限流key
@@ -138,16 +165,53 @@ public class CurrentLimitingProcessor {
         // 限流时间，单位秒
         long exTime = strategy.getExTime() * strategyTime;
 
-        if (SceneStrategy.all.getKey().equals(scene.getKey())) {
-
-            fullKey = CURRENT_LIMIT_HEADER + scene.getKey() + ":" + requestTag + ":" + exTime + ":" + limit;
-        } else if (SceneStrategy.ip.getKey().equals(scene.getKey())) {
-
-            fullKey = CURRENT_LIMIT_HEADER + scene.getKey() + ":" + requestTag + ":" + requestIp + ":" + exTime + ":" + limit;
-        } else {
-
-            fullKey = CURRENT_LIMIT_HEADER + scene.getKey() + ":" + requestTag + ":" + exTime + ":" + limit;
+        switch (scene) {
+            case ip:
+                fullKey = LIMIT_HEADER_CURRENT + scene.getKey() + ":" + requestTag + ":" + requestIp + ":" + exTime + ":" + limit;
+                break;
+            case app:
+            case all:
+            case user:
+            default:
+                fullKey = LIMIT_HEADER_CURRENT + scene.getKey() + ":" + requestTag + ":" + exTime + ":" + limit;
+                break;
         }
+
+        return fullKey;
+    }
+
+    /**
+     * 拼接限流key
+     *
+     * @param strategy     限流策略
+     * @param scene        限流场景
+     * @param strategyTime 限流时间
+     * @param limit        限流上限
+     * @param cuLimitInfo  请求信息
+     * @return 限流key
+     */
+    public static String spliceFullKey(final LimitingStrategy strategy, final SceneStrategy scene,
+                                       final long strategyTime, final long limit,
+                                       final CuLimitInfo cuLimitInfo) {
+        String fullKey;
+
+        // 限流时间，单位秒
+        long exTime = strategy.getExTime() * strategyTime;
+
+        switch (scene) {
+            case ip:
+                fullKey = LIMIT_HEADER_CURRENT + scene.getKey() + ":" + cuLimitInfo.getRequestTag() + ":" + cuLimitInfo.getIp() + ":" + exTime + ":" + limit;
+                break;
+            case app:
+                fullKey = LIMIT_HEADER_TIMES + scene.getKey() + ":" + cuLimitInfo.getAppId() + ":" + cuLimitInfo.getRequestTag() + ":" + exTime + ":" + limit;
+                break;
+            case all:
+            case user:
+            default:
+                fullKey = LIMIT_HEADER_CURRENT + scene.getKey() + ":" + cuLimitInfo.getRequestTag() + ":" + exTime + ":" + limit;
+                break;
+        }
+
         return fullKey;
     }
 
