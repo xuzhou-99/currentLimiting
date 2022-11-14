@@ -17,11 +17,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-
 import cn.altaria.currentlimiting.enums.LimitingStrategy;
 import cn.altaria.currentlimiting.enums.SceneStrategy;
-import cn.altaria.currentlimiting.exception.CurrentLimitingException;
-import cn.altaria.currentlimiting.pojo.CurrentLimitingRecord;
+import cn.altaria.currentlimiting.pojo.LimitingPointInfo;
 import cn.altaria.currentlimiting.util.RequestUtils;
 
 /**
@@ -31,19 +29,20 @@ import cn.altaria.currentlimiting.util.RequestUtils;
  * @since 2022/7/6
  */
 @Component
-public class LimitFilter implements Filter {
+public class CurrentLimitingFilter extends AbstractLimitingProcess implements Filter {
 
-    private static final Logger log = LoggerFactory.getLogger(LimitFilter.class);
-
-    private static final String CURRENT_LIMIT_HEADER = "limit:";
+    private static final Logger log = LoggerFactory.getLogger(CurrentLimitingFilter.class);
 
     /**
      * 动态限流集合
      */
-    private static Map<String, CurrentLimitingRecord> filterCache = new HashMap<>();
+    private static final Map<String, LimitingPointInfo> filterCache = new HashMap<>();
 
     @Resource
     private CurrentLimitingProcessor currentLimitingProcessor;
+
+    @Resource
+    private TimesLimitingProcessor timesLimitingProcessor;
 
     /**
      * 初始化动态限流集合
@@ -58,7 +57,7 @@ public class LimitFilter implements Filter {
      *
      * @return 动态限流集合
      */
-    public static Map<String, CurrentLimitingRecord> getFilterCache() {
+    public static Map<String, LimitingPointInfo> getFilterCache() {
         return filterCache;
     }
 
@@ -68,7 +67,7 @@ public class LimitFilter implements Filter {
      * @param key 限流key
      * @return 动态限流集合
      */
-    public static CurrentLimitingRecord getFilterLimit(String key) {
+    public static LimitingPointInfo getFilterLimit(String key) {
         return filterCache.get(key);
     }
 
@@ -77,13 +76,11 @@ public class LimitFilter implements Filter {
      *
      * @param scene      限流场景
      * @param requestTag 请求标识：例如uri
-     * @param requestIp  请求Ip
      * @return 限流key
      */
-    public static String getFilterLimit(SceneStrategy scene, String requestTag, String requestIp) {
-        String key = buildLimitKey(scene, requestTag, requestIp);
-        getFilterLimit(key);
-        return key;
+    public static LimitingPointInfo getFilterLimit(SceneStrategy scene, String requestTag) {
+        String key = buildLimitKey(scene, requestTag);
+        return getFilterLimit(key);
     }
 
     /**
@@ -102,11 +99,10 @@ public class LimitFilter implements Filter {
      *
      * @param scene      限流场景
      * @param requestTag 请求标识：例如uri
-     * @param requestIp  请求Ip
      * @return 限流是否存在
      */
-    public static Boolean isExitLimit(SceneStrategy scene, String requestTag, String requestIp) {
-        String key = buildLimitKey(scene, requestTag, requestIp);
+    public static Boolean isExitLimit(SceneStrategy scene, String requestTag) {
+        String key = buildLimitKey(scene, requestTag);
         return isExitLimit(key);
     }
 
@@ -116,7 +112,7 @@ public class LimitFilter implements Filter {
      * @param key            限流key
      * @param limitingRecord 限流操作记录
      */
-    public static void addLimit(String key, CurrentLimitingRecord limitingRecord) {
+    public static void addLimit(String key, LimitingPointInfo limitingRecord) {
         filterCache.put(key, limitingRecord);
     }
 
@@ -128,15 +124,14 @@ public class LimitFilter implements Filter {
      * @param strategyTime     限流时间
      * @param limit            限流上限
      * @param requestTag       请求标识：例如uri
-     * @param requestIp        请求Ip
      * @return 限流key
      */
     public static String addLimit(final LimitingStrategy limitingStrategy, final SceneStrategy scene,
                                   final long strategyTime, final long limit,
-                                  final String requestTag, final String requestIp) {
+                                  final String requestTag) {
 
-        String key = buildLimitKey(scene, requestTag, requestIp);
-        CurrentLimitingRecord limitingRecord = CurrentLimitingRecord.builder()
+        String key = buildLimitKey(scene, requestTag);
+        LimitingPointInfo limitingRecord = LimitingPointInfo.builder()
                 .strategy(limitingStrategy)
                 .scene(scene)
                 .strategyTime(strategyTime)
@@ -155,6 +150,7 @@ public class LimitFilter implements Filter {
      * @param key 动态限流key
      */
     public static void removeFilterKey(String key) {
+        log.info("【限流】动态限流：移除对 {} 限流", key);
         filterCache.remove(key);
     }
 
@@ -163,16 +159,36 @@ public class LimitFilter implements Filter {
      *
      * @param scene      限流场景
      * @param requestTag 请求标识：例如uri
-     * @param requestIp  请求Ip
-     * @return 限流key
      */
-    public static String removeFilterKey(SceneStrategy scene, String requestTag, String requestIp) {
-        String key = buildLimitKey(scene, requestTag, requestIp);
+    public static String removeFilterKey(SceneStrategy scene, String requestTag) {
+        String key = buildLimitKey(scene, requestTag);
         removeFilterKey(key);
-        log.info("【限流】动态限流：移除对 {} 限流", key);
         return key;
     }
 
+    /**
+     * 构建限流key
+     *
+     * @param scene      限流场景
+     * @param requestTag 限流资源
+     * @return 限流key
+     */
+    private static String buildLimitKey(SceneStrategy scene, String requestTag) {
+        String key;
+        switch (scene) {
+            case APP:
+                key = LIMIT_HEADER_TIMES + requestTag;
+                break;
+            case IP:
+            case ALL:
+            case USER:
+            default:
+                key = LIMIT_HEADER_CURRENT + requestTag;
+                break;
+        }
+
+        return key;
+    }
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
@@ -194,28 +210,23 @@ public class LimitFilter implements Filter {
         String ip = RequestUtils.getIpAddress(request);
         String uri = request.getRequestURI();
 
-        boolean isPass = true;
-        CurrentLimitingRecord currentLimitingRecord = null;
-        // 是否存在全局限流
-        String limitKeyAll = buildLimitKey(SceneStrategy.all, uri, ip);
-        if (filterCache.containsKey(limitKeyAll)) {
-            currentLimitingRecord = filterCache.get(limitKeyAll);
-            isPass = currentLimitingProcessor.filterRequest(filterCache.get(limitKeyAll), uri, ip);
+        LimitingPointInfo limitingPointInfo = null;
+        // 是否存在计次
+        String limitKeyApp = buildLimitKey(SceneStrategy.APP, uri);
+        // 是否存在限流
+        String limitKeyAll = buildLimitKey(SceneStrategy.ALL, uri);
+        if (filterCache.containsKey(limitKeyApp)) {
+            limitingPointInfo = filterCache.get(limitKeyApp);
+            limitingPointInfo.setIp(ip);
+            limitingPointInfo.setRequestTag(uri);
+            timesLimitingProcessor.filterRequest(limitingPointInfo);
+        } else if (filterCache.containsKey(limitKeyAll)) {
+            limitingPointInfo = filterCache.get(limitKeyAll);
+            limitingPointInfo.setIp(ip);
+            limitingPointInfo.setRequestTag(uri);
+            currentLimitingProcessor.filterRequest(limitingPointInfo);
         }
 
-        // 是否存在Ip限流
-        String limitKeyIp = buildLimitKey(SceneStrategy.ip, uri, ip);
-        if (filterCache.containsKey(limitKeyIp)) {
-            currentLimitingRecord = filterCache.get(limitKeyIp);
-            isPass = currentLimitingProcessor.filterRequest(filterCache.get(limitKeyIp), uri, ip);
-        }
-
-        if (!isPass) {
-            log.info("【限流组件】动态限流：IP：{}, 请求 URI：{}，在 {} 内达到限流上限 {} 次", ip, uri,
-                    currentLimitingRecord.getStrategyTime() + currentLimitingRecord.getStrategy().getName(),
-                    currentLimitingRecord.getLimit());
-            throw new CurrentLimitingException("请求限流");
-        }
 
         filterChain.doFilter(servletRequest, servletResponse);
     }
@@ -223,18 +234,6 @@ public class LimitFilter implements Filter {
     @Override
     public void destroy() {
         Filter.super.destroy();
-    }
-
-    private static String buildLimitKey(SceneStrategy scene, String requestTag, String requestIp) {
-        String key;
-        if (SceneStrategy.all.getKey().equals(scene.getKey())) {
-            key = CURRENT_LIMIT_HEADER + requestTag;
-        } else if (SceneStrategy.ip.getKey().equals(scene.getKey())) {
-            key = CURRENT_LIMIT_HEADER + requestTag + ":" + requestIp;
-        } else {
-            key = CURRENT_LIMIT_HEADER + requestTag;
-        }
-        return key;
     }
 
 }

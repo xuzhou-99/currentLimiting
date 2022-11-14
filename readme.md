@@ -5,6 +5,8 @@
 本模块主要实现对服务请求的限流，通过策略模式加载不同配置类型的限流实现，目前的限流算法是`固定窗口限流算法(计数器)`,
 一定时间内达到限流上限则限制访问。
 
+
+
 #### 主要的限流算法
 
 参考文档：
@@ -18,7 +20,9 @@
 * 漏桶算法
 * 令牌桶算法
 
-#### 主要模块
+
+
+### 主要模块
 
 * 限流实现：
     * 注解限流：`@CurrentLimiting`，通过注解添加限流场景、策略、限流上限等参数
@@ -27,38 +31,41 @@
 * 限流计数器`CountStrategy`：本地缓存、Redis(单机)
 * 限流策略`LimitingStrategy`：秒、分、时、天、周、月、年
 
-### 模块依赖
 
-* `spring-boot-configuration-processor`：加载配置类(必要)
-* `spring-boot-starter-aop`：aop切面依赖
-* `spring-boot-starter-data-redis`：redis依赖
+
+#### 引用组件
+
+* 目前是发布在github个人仓库，引用时需要添加 github 仓库
 
 ```xml
 
+<repositories>
+    <!-- github -->
+    <repository>
+        <id>github</id>
+        <!-- https://raw.github.com/用户名/仓库名/分支名 -->
+        <url>https://raw.github.com/xuzhou-99/mvn-repo/main</url>
+        <snapshots>
+            <enabled>true</enabled>
+            <updatePolicy>always</updatePolicy>
+        </snapshots>
+    </repository>
+</repositories>
+
 <dependencies>
-    <!-- configuration 加载配置类 -->
+    
+    <!--altaria 限流组件-->
     <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-configuration-processor</artifactId>
-        <optional>true</optional>
-    </dependency>
-
-    <!--AOP 切面框架-->
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-aop</artifactId>
-    </dependency>
-
-    <!--redis-->
-    <dependency>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-data-redis</artifactId>
-        <version>2.6.6</version>
+        <groupId>cn.altaria</groupId>
+        <artifactId>currentLimiting</artifactId>
+        <version>0.0.2-SNAPSHOT</version>
     </dependency>
 </dependencies>
 ```
 
-### 配置参数
+
+
+#### 配置参数
 
 ```yml
 # ------------------------ 限流配置 ---------------------------- #
@@ -70,15 +77,70 @@ security:
     count-strategy: redis
 
 spring:
-  # ------------------  redis配置 ------------------#
+  # --------------  redis配置，如果想使用redis模式，则配置------------#
   redis:
     host: 127.0.0.1
     port: 6379
 ```
 
+
+
+#### 回调接口实现
+
+提供回调接口 `ILimitingInfoHandle` ，实现其中的 `callback()` 方法，可以获取每次限流/计次信息，自由拓展功能，例如记录数据库日志。
+
+* isSupport：默认需要2个实现类，分别支持 
+  * "limit".equals(type)：该实现类支持所有的限流回调
+  * "times".equals(type)：该实现类仅支持计次回调
+* doBefore：限流或计次前调用方法
+  * 计次需要特殊处理，实现该方法，获取appId、secretKey，进行判断是否有效，并处理计次有效时长、总次数
+* callback：回调方法，可以实现进行数据库处理等操作
+
+```java
+/**
+ * @author xuzhou
+ * @since 2022/11/14
+ */
+public interface ILimitingInfoHandle {
+
+    /**
+     * 支持限流模式
+     *
+     * @param type 限流模式：limit限流，times计次
+     * @return 支持
+     */
+    boolean isSupport(String type);
+
+    /**
+     * 校验 请求中 AppId和 SecretKey 是否有效
+     *
+     * @param limitInfo 限流参数信息
+     * @return 有效
+     */
+    default boolean doBefore(LimitingPointInfo limitInfo) {
+        return true;
+    }
+
+
+    /**
+     * 回调处理
+     *
+     * @param limitInfo 限流信息
+     */
+    default void callback(LimitingPointInfo limitInfo) {
+        // 计次通过后，剩余次数-1
+    }
+
+}
+```
+
+
+
 ### 使用示例
 
-#### 注解限流
+#### 接口限流
+
+##### 注解限流
 
 通过添加注解`@CurrentLimiting`来标记该请求路由需要进行限流，切面`CurrentLimitingAspect`拦截
 统一处理，解析请求路径、请求IP，调用限流过滤器`CurrentLimitingProcessor`根据配置中的`count-strategy`来策略
@@ -97,13 +159,14 @@ spring:
 
 ```java
 // 使用示例
+@Slf4j
 @Controller
 @RequestMapping("/api")
-public class ApiController {
+public class TestController {
 
     @GetMapping("/limit")
     @ResponseBody
-    @CurrentLimiting(strategy = LimitingStrategy.minute_strategy, strategyTime = 1L, scene = SceneStrategy.all, limit = 10L)
+    @CurrentLimiting(strategy = LimitingStrategy.MONTH_STRATEGY, strategyTime = 1L, scene = SceneStrategy.ALL, limit = 10L)
     public String limit() {
         System.out.println("测试限流...");
         return null;
@@ -111,9 +174,11 @@ public class ApiController {
 }
 ```
 
-#### 动态限流
 
-对于请求的限流可能并不是实时都要的，可能某一段时间是需要进行限流，所以添加了动态限流的组件，实现核心是`LimitFilter`,
+
+##### 动态限流
+
+对于请求的限流可能并不是实时都要的，可能某一段时间是需要进行限流，所以添加了动态限流的组件，实现核心是`CurrentLimitingFilter`,
 这是一个**全局过滤器**，可以通过调用其中的**静态方法**来实现**动态管理限流**。
 
 * filterCache：动态限流集合，存放所有需要进行限流的请求标识
@@ -123,14 +188,13 @@ public class ApiController {
     * getFilterCache()：获取动态限流集合
     * addLimit(***)：新增限流
     * removeFilterKey(String key)：移除限流
-    * removeFilterKey(SceneStrategy scene, String requestTag, String requestIp)：移除限流
+    * removeFilterKey(SceneStrategy scene, String requestTag)：移除限流
 
 ```java
-// 使用示例
 @Slf4j
 @Controller
 @RequestMapping("/api")
-public class ApiController {
+public class TestController {
 
     @GetMapping("/limit1")
     @ResponseBody
@@ -141,21 +205,58 @@ public class ApiController {
 
     @GetMapping("/add")
     @ResponseBody
-    public ApiResponse add(HttpServletRequest request) {
-        String ipAddress = RequestUtils.getIpAddress(request);
+    public String add(HttpServletRequest request) {
         log.info("添加 Filter 限流...");
-        String limitKey = LimitFilter.addLimit(LimitingStrategy.minute_strategy, SceneStrategy.ip, 1L,
-                2, "/api/limit1", ipAddress);
-        return ApiResponse.ofSuccess("添加" + limitKey + "限流！");
+        String limitKey = CurrentLimitingFilter.addLimit(LimitingStrategy.MINUTE_STRATEGY, SceneStrategy.IP, 1L,
+                2, "/api/limit1");
+        return "添加" + limitKey + "限流！";
     }
 
     @GetMapping("/remove")
     @ResponseBody
-    public ApiResponse remove() {
+    public String remove(HttpServletRequest request) {
+
         log.info("移除 Filter 限流...");
-        String limitKey = LimitFilter.removeFilterKey(SceneStrategy.all, "/api/limit1", "");
-        return ApiResponse.ofSuccess("移除" + limitKey + "限流！");
+        String limitKey = CurrentLimitingFilter.removeFilterKey(SceneStrategy.IP, "/api/limit1");
+        return "移除" + limitKey + "限流！";
     }
 }
-
 ```
+
+
+
+#### 接口计次
+
+##### 接口计次
+
+通过添加注解`@CurrentLimiting`来标记该请求路由需要进行计次，切面`CurrentLimitingAspect`拦截
+统一处理，解析请求路径、请求IP，调用限流过滤器`TimesLimitingProcessor`根据配置中的`count-strategy`来策略
+加载限流计数器，可以选择本地缓存`cache`，或者`redis`来进行限流处理。
+
+* scene：限流场景-**APP**
+* strategy、strategyTime、limit：可以通过 **回调接口实现：doBefore/callback**  来从数据库获取并修改，从而实现高度动态自定义
+
+计次请求：
+
+​	支持AppId、ip组合计次
+
+* appId：应用id，放置于请求头
+* secretKey：应用密钥，放置于请求头
+
+```java
+// 使用示例
+@Slf4j
+@Controller
+@RequestMapping("/api")
+public class TestController {
+
+    @GetMapping("/times")
+    @ResponseBody
+    @CurrentLimiting(strategy = LimitingStrategy.MONTH_STRATEGY, strategyTime = 1L, scene = SceneStrategy.APP, limit = 10L)
+    public String times() {
+        System.out.println("测试计次...");
+        return null;
+    }
+}
+```
+

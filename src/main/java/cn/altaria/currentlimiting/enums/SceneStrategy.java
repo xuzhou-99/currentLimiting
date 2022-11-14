@@ -16,23 +16,23 @@ public enum SceneStrategy {
     /**
      * 全局请求
      */
-    all("all", "全局请求"),
+    ALL("all", "全局请求"),
 
     /**
      * 单独用户限流
      * TODO:暂未实现
      */
-    user("user", "单独用户限流"),
+    USER("user", "单独用户限流"),
 
     /**
      * 对IP进行限流
      */
-    ip("ip", "对IP进行限流"),
+    IP("ip", "对IP进行限流"),
 
     /**
      * 应用用户限流
      */
-    app("app", "应用限流"),
+    APP("app", "应用限流"),
     ;
 
     /**

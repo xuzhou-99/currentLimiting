@@ -38,10 +38,7 @@ public class RedisCountStrategy implements ICountStrategy {
             opsForValue.set(fullKey, String.valueOf(increment), expireTime, TimeUnit.SECONDS);
         }
 
-        if (increment > limit) {
-            return false;
-        }
-        return true;
+        return increment <= limit;
     }
 
 

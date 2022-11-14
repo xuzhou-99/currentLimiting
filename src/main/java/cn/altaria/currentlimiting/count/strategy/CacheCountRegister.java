@@ -3,6 +3,9 @@ package cn.altaria.currentlimiting.count.strategy;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import lombok.Getter;
 import lombok.Setter;
 
@@ -14,61 +17,85 @@ import lombok.Setter;
  */
 public class CacheCountRegister {
 
-    private static Map<String, CacheLimit> cacheLimitMap = new HashMap<>(1024);
+    private static final Logger log = LoggerFactory.getLogger(CacheCountRegister.class);
+
+    private static final Map<String, CacheLimit> CACHE_LIMIT_MAP = new HashMap<>(1024);
 
     /**
-     * 获取本地限流缓存
-     *
-     * @return 限流缓存
+     * 默认触发移除过期限流限量
      */
-    public static Map<String, CacheLimit> getCacheLimitMap() {
-        return cacheLimitMap;
+    private static final Integer DEFAULT_BOUNDARY_SIZE = 500;
+
+    private static final CacheCountRegister INSTANCE = new CacheCountRegister();
+
+    private CacheCountRegister() {
     }
 
+    public static CacheCountRegister getInstance() {
+        return INSTANCE;
+    }
+
+    /**
+     * 移除过期限流key-value
+     * {@code 后续考虑添加守护线程处理过期，暂时不考虑}
+     */
     public static void removeOutdated() {
-        // TODO:移除过期的限流 key-value
+        // 移除过期的限流 key-value
+
+        long currentTimeMillis = System.currentTimeMillis();
+        log.info("开始移除过期限流 key-value：");
+        for (Map.Entry<String, CacheLimit> cacheLimit : CACHE_LIMIT_MAP.entrySet()) {
+            if (currentTimeMillis > cacheLimit.getValue().getEx()) {
+                CACHE_LIMIT_MAP.remove(cacheLimit.getKey());
+                log.info("移除过期限流 key：{}", cacheLimit.getKey());
+            }
+        }
+        log.info("完成移除过期限流 key-value。");
+    }
+
+    /**
+     * 移除过期限流key-value，默认500
+     *
+     * @param boundarySize 触发移除限量
+     */
+    public static void removeOutdated(Integer boundarySize) {
+        if (boundarySize == null) {
+            boundarySize = DEFAULT_BOUNDARY_SIZE;
+        }
+        if (getCacheSize() >= boundarySize) {
+            removeOutdated();
+        }
+    }
+
+    /**
+     * 获取限流key-value大小
+     *
+     * @return 限流组大小
+     */
+    public static int getCacheSize() {
+        return CACHE_LIMIT_MAP.size();
     }
 
 
     /**
-     * 限流校验
+     * 获取值
      *
-     * @param key        key
-     * @param expireTime 过期时间
-     * @param limit      限流次数
-     * @return 是否限流
+     * @param key {@link String}
+     * @return {@link CacheLimit}
      */
-    public static synchronized boolean checkFilter(final String key, final long expireTime, final long limit) {
-        long currentTimeMillis = System.currentTimeMillis();
-        CacheLimit cacheLimit = cacheLimitMap.get(key);
-        // 尚未限流
-        if (cacheLimit == null) {
-            cacheLimit = new CacheLimit();
-            cacheLimit.setLimit(1);
-            cacheLimit.setEx(currentTimeMillis + expireTime * 1000);
-            cacheLimitMap.put(key, cacheLimit);
-            return true;
-        }
-
-        // 上一个限流窗口过期
-        if (currentTimeMillis > cacheLimit.getEx()) {
-            cacheLimit.setLimit(1);
-            cacheLimit.setEx(currentTimeMillis + expireTime * 1000);
-            cacheLimitMap.put(key, cacheLimit);
-            return true;
-        }
-
-        // 未到限流上限
-        long count = cacheLimit.getLimit() + 1;
-        if (count <= limit) {
-            cacheLimit.setLimit(count);
-            cacheLimitMap.put(key, cacheLimit);
-            return true;
-        }
-
-        // 限流
-        return false;
+    public CacheLimit get(final String key) {
+        return CACHE_LIMIT_MAP.getOrDefault(key, null);
     }
+
+    /**
+     * 获取值
+     *
+     * @param key {@link String}
+     */
+    public void put(final String key, final CacheLimit cacheLimit) {
+        CACHE_LIMIT_MAP.put(key, cacheLimit);
+    }
+
 
     @Setter
     @Getter

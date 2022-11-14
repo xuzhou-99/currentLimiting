@@ -20,14 +20,18 @@ public enum CountStrategy {
     /**
      * 本地缓存
      */
-    cache("cache", "cacheCountStrategy"),
+    CACHE("cache", "cacheCountStrategy"),
 
     /**
      * redis
      */
-    redis("redis", "redisCountStrategy"),
+    REDIS("redis", "redisCountStrategy"),
     ;
 
+    /**
+     * 枚举缓存
+     */
+    private static Map<String, CountStrategy> enumCache = new HashMap<>();
     /**
      * 策略key
      */
@@ -36,12 +40,6 @@ public enum CountStrategy {
      * 策略bean名称
      */
     private final String strategyName;
-
-
-    /**
-     * 枚举缓存
-     */
-    private static Map<String, CountStrategy> enumCache = new HashMap<>();
 
     /**
      * 根据策略编码获取策略枚举
@@ -67,7 +65,7 @@ public enum CountStrategy {
             enumCache = Arrays.stream(CountStrategy.values()).collect(Collectors.toMap(CountStrategy::getKey, e -> e));
         }
         if (enumCache.get(key) == null) {
-            return CountStrategy.cache.getStrategyName();
+            return CountStrategy.CACHE.getStrategyName();
         }
         return enumCache.get(key).getStrategyName();
     }

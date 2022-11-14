@@ -40,7 +40,7 @@ public @interface CurrentLimiting {
      *
      * @return {@link SceneStrategy}
      */
-    SceneStrategy scene() default SceneStrategy.ip;
+    SceneStrategy scene() default SceneStrategy.IP;
 
     /**
      * 限制访问次数
